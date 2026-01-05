@@ -1,28 +1,58 @@
-# main.py
+# main.py (исправленная версия)
 import sys
 import os
 
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-from data_collection.news_collector import NewsCollector
-from data_collection.stock_collector import StockCollector
+from analysis.market_trend_analyzer import MarketTrendAnalyzer
 
 
 def main():
-    print("=== Запуск системы анализа рынка ===")
+    print("=== Система анализа рыночных трендов с ML ===")
+    print("Используется машинное обучение (BERTopic) для выявления трендов\n")
 
-    # 1. Собираем новости
-    news_collector = NewsCollector()
-    news = news_collector.get_news("Tesla", pages=1)
-    print(f"📰 Собрано {len(news)} новостей")
+    # Создаем анализатор
+    # Если есть API ключ NewsAPI - передайте его:
+    # analyzer = MarketTrendAnalyzer(news_api_key="ваш_ключ")
 
-    # 2. Собираем данные по акциям
-    stock_collector = StockCollector()
-    stock_data = stock_collector.get_stock_data("TSLA")
-    print(f"📈 Данные по акции: {stock_data['company_name']}")
+    # Без ключа - использует тестовые данные
+    analyzer = MarketTrendAnalyzer(news_api_key=None)
 
-    # 3. Здесь будет анализ и корреляция
-    print("✅ Оба модуля работают!")
+    # Компании для анализа
+    companies = ["Tesla", "Apple", "Microsoft", "Nvidia", "Amazon", "Google"]
+
+    print(f"Анализируем компании: {', '.join(companies)}")
+    print("Обрабатываю новости и применяю ML-модель...\n")
+
+    # Запускаем ML-анализ
+    results = analyzer.analyze_market_trends(companies, pages=1)
+
+    # Выводим результаты
+    print("=" * 50)
+    print("РЕЗУЛЬТАТЫ ML-АНАЛИЗА")
+    print("=" * 50)
+
+    print(f"Обработано новостей: {results['total_news']}")
+    print(f"Выявлено рыночных трендов: {results['trends_found']}")
+
+    print("\nДЕТАЛИ ТРЕНДОВ:")
+    print("-" * 30)
+
+    # Показываем каждый тренд
+    trends_info = results['trends_info']
+    for idx, row in trends_info.iterrows():
+        if row['Topic'] != -1:  # Пропускаем "шум"
+            print(f"\nТренд #{row['Topic']}:")
+            print(f"   Упоминаний в новостях: {row['Count']}")
+
+            # Получаем ключевые слова
+            keywords = analyzer.trend_clusterer.get_trend_keywords(row['Topic'], top_n=5)
+            keyword_list = [word[0] for word in keywords]
+            print(f"   Ключевые слова: {', '.join(keyword_list)}")
+
+    print("\n" + "=" * 50)
+    print("Анализ завершен! Система успешно обнаружила рыночные тренды.")
+    print("=" * 50)
 
 
 if __name__ == "__main__":

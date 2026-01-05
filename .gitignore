@@ -41,3 +41,4 @@ data/processed/
 config.yaml
 *.env
 secrets.yml
+config.py
