@@ -50,6 +50,13 @@ def main():
             keyword_list = [word[0] for word in keywords]
             print(f"   Ключевые слова: {', '.join(keyword_list)}")
 
+    # Анализ тональности
+    if 'sentiment_summary' in results:
+        print("\n📊 АНАЛИЗ ТОНАЛЬНОСТИ:")
+        print(f"  Средний показатель: {results['sentiment_summary']['average_score']:.2f}")
+        print(f"  Индекс настроения: {results['sentiment_summary']['sentiment_index']}")
+        print(f"  Распределение: {results['sentiment_summary']['distribution_percentage']}")
+
     print("\n" + "=" * 50)
     print("Анализ завершен! Система успешно обнаружила рыночные тренды.")
     print("=" * 50)
