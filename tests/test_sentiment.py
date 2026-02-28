@@ -1,138 +1,88 @@
-import sys
-import os
+"""
+Тесты для SentimentAnalyzer
+"""
 import pytest
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from analysis.sentiment_analyzer import SentimentAnalyzer
-
-
-def test_sentiment_analyzer_initialization():
-    """Тест инициализации анализатора"""
-    analyzer = SentimentAnalyzer(model_name="distilroberta-financial")
-
-    # Проверяем что модель загружена
-    assert analyzer.model is not None
-    assert analyzer.tokenizer is not None
-
-    # Проверяем информацию о модели
-    model_info = analyzer.get_model_info()
-    assert "name" in model_info
-    assert "parameters" in model_info
-
-    print("✓ Тест инициализации пройден")
+def test_initialization(sentiment_analyzer):
+    assert sentiment_analyzer.model is not None
+    assert sentiment_analyzer.tokenizer is not None
+    info = sentiment_analyzer.get_model_info()
+    assert "name" in info
+    assert "parameters" in info
+    assert info["parameters"] > 0
 
 
-def test_single_text_analysis():
-    """Тест анализа одиночного текста"""
-    analyzer = SentimentAnalyzer(model_name="distilroberta-financial")
-
-    # Позитивный текст
-    positive_text = "Company reports record profits and strong growth outlook"
-    pos_result = analyzer.analyze_text(positive_text)
-
-    assert "sentiment" in pos_result
-    assert "score" in pos_result
-    assert "confidence" in pos_result
-    assert pos_result["score"] > -1 and pos_result["score"] < 1
-
-    # Негативный текст
-    negative_text = "Stock plummets after disappointing earnings report"
-    neg_result = analyzer.analyze_text(negative_text)
-
-    # Проверяем что негативный текст имеет меньшую оценку
-    if pos_result["sentiment"] == "positive" and neg_result["sentiment"] == "negative":
-        assert pos_result["score"] > neg_result["score"]
-
-    print("✓ Тест анализа одиночного текста пройден")
+def test_analyze_positive_text(sentiment_analyzer):
+    result = sentiment_analyzer.analyze_text(
+        "Company reports record profits and strong growth outlook"
+    )
+    assert result["sentiment"] in ("positive", "neutral", "negative")
+    assert -1.0 <= result["score"] <= 1.0
+    assert 0.0 <= result["confidence"] <= 1.0
+    assert result.get("error") is not True
 
 
-def test_batch_analysis():
-    """Тест пакетного анализа"""
-    analyzer = SentimentAnalyzer(model_name="distilroberta-financial")
+def test_analyze_negative_text(sentiment_analyzer):
+    result = sentiment_analyzer.analyze_text(
+        "Stock plummets after catastrophic earnings miss"
+    )
+    assert result["sentiment"] in ("positive", "neutral", "negative")
+    assert -1.0 <= result["score"] <= 1.0
 
-    texts = [
-        "Positive news about market recovery",
-        "Negative reports on company performance",
-        "Neutral announcement about meeting"
-    ]
 
-    results = analyzer.analyze_batch(texts, batch_size=2)
+def test_positive_score_higher_than_negative(sentiment_analyzer):
+    pos = sentiment_analyzer.analyze_text("Record profits, strong growth, bullish market")
+    neg = sentiment_analyzer.analyze_text("Bankruptcy, massive losses, market crash")
+    # Позитивный текст должен иметь score выше негативного
+    assert pos["score"] > neg["score"]
 
-    assert len(results) == 3
+
+def test_empty_text_returns_neutral(sentiment_analyzer):
+    result = sentiment_analyzer.analyze_text("")
+    assert result["sentiment"] == "neutral"
+    assert result["error"] is True
+
+
+def test_none_handling(sentiment_analyzer):
+    result = sentiment_analyzer.analyze_text(None)
+    assert result["sentiment"] == "neutral"
+    assert result["error"] is True
+
+
+def test_batch_analysis(sentiment_analyzer, sample_news_texts):
+    results = sentiment_analyzer.analyze_batch(sample_news_texts, batch_size=4)
+    assert len(results) == len(sample_news_texts)
     assert all("sentiment" in r for r in results)
     assert all("confidence" in r for r in results)
+    assert all(-1.0 <= r["score"] <= 1.0 for r in results)
 
-    print("✓ Тест пакетного анализа пройден")
 
+def test_sentiment_summary(sentiment_analyzer, sample_news_texts):
+    summary = sentiment_analyzer.get_sentiment_summary(sample_news_texts)
 
-def test_sentiment_summary():
-    """Тест сводной статистики"""
-    analyzer = SentimentAnalyzer(model_name="distilroberta-financial")
-
-    texts = [
-        "Great earnings report from Tesla",
-        "Apple faces regulatory challenges",
-        "Market shows mixed signals today",
-        "Microsoft announces innovative partnership"
-    ]
-
-    summary = analyzer.get_sentiment_summary(texts)
-
-    assert summary["total_texts"] == 4
+    assert summary["total_texts"] == len(sample_news_texts)
     assert "average_score" in summary
-    assert "distribution_percentage" in summary
     assert "dominant_sentiment" in summary
+    assert "distribution_percentage" in summary
 
-    # Проверяем что сумма распределения ≈ 100%
-    distribution = summary["distribution_percentage"]
-    total_percentage = sum(distribution.values())
-    assert 99 <= total_percentage <= 101  # Допускаем погрешность округления
+    # Сумма распределения ≈ 100%
+    total_pct = sum(summary["distribution_percentage"].values())
+    assert 99.0 <= total_pct <= 101.0
 
-    print("✓ Тест сводной статистики пройден")
-
-
-def test_empty_text_handling():
-    """Тест обработки пустых текстов"""
-    analyzer = SentimentAnalyzer(model_name="distilroberta-financial")
-
-    # Пустой текст
-    empty_result = analyzer.analyze_text("")
-    assert empty_result["sentiment"] == "neutral"
-    assert empty_result["error"] == True
-
-    # Пустой список
-    empty_summary = analyzer.get_sentiment_summary([])
-    assert empty_summary["total_texts"] == 0
-
-    print("✓ Тест обработки пустых текстов пройден")
+    # Средняя оценка в допустимом диапазоне
+    assert -1.0 <= summary["average_score"] <= 1.0
 
 
-def test_different_models():
-    """Тест работы с разными моделями"""
-    # Тестируем несколько моделей (если есть время/ресурсы)
-    test_models = ["distilroberta-financial"]  # Можно добавить другие
-
-    for model_name in test_models:
-        analyzer = SentimentAnalyzer(model_name=model_name)
-        result = analyzer.analyze_text("Test sentence for model validation")
-
-        assert result["model"] == model_name
-        assert result["sentiment"] in ["positive", "neutral", "negative"]
-
-    print("✓ Тест разных моделей пройден")
+def test_empty_list_summary(sentiment_analyzer):
+    summary = sentiment_analyzer.get_sentiment_summary([])
+    assert summary["total_texts"] == 0
+    assert summary["average_score"] == 0.0
 
 
-if __name__ == "__main__":
-    print("Запуск тестов анализатора тональности...")
-    print("=" * 60)
-
-    test_sentiment_analyzer_initialization()
-    test_single_text_analysis()
-    test_batch_analysis()
-    test_sentiment_summary()
-    test_empty_text_handling()
-    test_different_models()
-
-    print("=" * 60)
-    print("Все тесты успешно пройдены!")
+def test_long_text_truncation(sentiment_analyzer):
+    """Длинный текст не должен вызывать ошибку (BERT ограничен 512 токенами)"""
+    long_text = "The market is volatile. " * 200
+    result = sentiment_analyzer.analyze_text(long_text)
+    assert result["sentiment"] in ("positive", "neutral", "negative")
+    assert result.get("error") is not True

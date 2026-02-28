@@ -33,19 +33,13 @@ def test_clustering_basic():
 
     clusterer = TrendClusterer()
 
-    # БОЛЕЕ ПРОСТЫЕ ТЕКСТЫ (меньше слов)
     test_texts = [
-        # Тема 1: Электромобили
         "Tesla electric vehicles battery",
         "Electric cars pollution cities",
         "Charging stations expanding",
-
-        # Тема 2: Искусственный интеллект
         "Artificial intelligence doctors",
         "Machine learning predictions",
         "Neural networks creative",
-
-        # Тема 3: Облачные вычисления
         "Amazon AWS cloud",
         "Microsoft Azure tools",
         "Cloud computing remote",
@@ -53,19 +47,13 @@ def test_clustering_basic():
 
     topics = clusterer.fit_clusters(test_texts)
 
-    # Проверяем что кластеризация прошла
     assert topics is not None
     assert len(topics) == len(test_texts)
 
+    trends_info = clusterer.get_trends_info()
     print(f"Найдено уникальных тем: {len(set(topics))}")
     print(f"Темы: {set(topics)}")
-
-    # Информация о трендах (может быть пустой если все -1)
-    trends_info = clusterer.get_trends_info()
     print(f"Информация о трендах: {len(trends_info)} записей")
-
-    # Допускаем что все может быть шумом для малых данных
-    print(f"Базовая кластеризация выполнена")
     print(f"Всего документов: {len(test_texts)}")
 
     return True
@@ -79,7 +67,6 @@ def test_clustering_metrics():
 
     clusterer = TrendClusterer()
 
-    # Разнообразные тестовые данные
     test_texts = [
         "Tesla stock rises after earnings report",
         "Apple announces new iPhone with AI features",
@@ -93,17 +80,16 @@ def test_clustering_metrics():
         "Cybersecurity threats increase globally",
     ]
 
-    # Обучаем модель
-    topics = clusterer.fit_clusters(test_texts)
+    clusterer.fit_clusters(test_texts)
 
-    # Получаем метрики
-    metrics = clusterer.get_clustering_metrics(test_texts)
+    # get_clustering_metrics не принимает аргументов —
+    # работает с уже обученной моделью
+    metrics = clusterer.get_clustering_metrics()
 
     print("Полученные метрики:")
     for key, value in metrics.items():
         print(f"  {key}: {value}")
 
-    # Проверяем обязательные метрики
     required_metrics = [
         'total_documents',
         'clusters_found',
@@ -111,11 +97,9 @@ def test_clustering_metrics():
         'avg_docs_per_cluster',
         'topic_stability'
     ]
-
     for metric in required_metrics:
         assert metric in metrics, f"Отсутствует метрика: {metric}"
 
-    # Проверяем логические ограничения
     assert metrics['total_documents'] == len(test_texts)
     assert 0 <= metrics['noise_percentage'] <= 100
     assert metrics['clusters_found'] >= 0
@@ -151,22 +135,17 @@ def test_detailed_report():
     for section in report.keys():
         print(f" {section}")
 
-    # Проверяем структуру отчета
     assert 'summary' in report
     assert 'clusters_details' in report
     assert 'metrics' in report
 
-    # Проверяем summary
     summary = report['summary']
     assert 'total_documents' in summary
     assert 'valid_clusters' in summary
     assert 'noise_percentage' in summary
     assert 'quality_score' in summary
-
-    # Проверяем качество в диапазоне 0-100
     assert 0 <= summary['quality_score'] <= 100
 
-    # Проверяем детали кластеров
     if len(report['clusters_details']) > 0:
         cluster = report['clusters_details'][0]
         assert 'topic_id' in cluster
@@ -189,7 +168,6 @@ def test_keyword_extraction():
 
     clusterer = TrendClusterer()
 
-    # БОЛЕЕ ПРОСТЫЕ тексты
     test_texts = [
         "Tesla electric battery",
         "Electric charging station",
@@ -199,22 +177,18 @@ def test_keyword_extraction():
         "Solar power storage"
     ]
 
-    topics = clusterer.fit_clusters(test_texts)
+    clusterer.fit_clusters(test_texts)
     trends_info = clusterer.get_trends_info()
 
-    # Проверяем что DataFrame имеет колонку Topic
     if not trends_info.empty and 'Topic' in trends_info.columns:
         valid_topics = trends_info[trends_info['Topic'] != -1]
-
         if len(valid_topics) > 0:
             for _, topic_row in valid_topics.iterrows():
                 topic_id = topic_row['Topic']
                 keywords = clusterer.get_trend_keywords(topic_id, 3)
-
                 print(f"\nКлючевые слова для тренда {topic_id}:")
                 for word, score in keywords:
                     print(f"   {word} ({score:.3f})")
-
                 assert len(keywords) > 0
     else:
         print("Нет валидных трендов для извлечения ключевых слов")
@@ -233,99 +207,27 @@ def test_empty_clustering():
 
     # Тест 1: Пустой список
     try:
-        topics = clusterer.fit_clusters([])
-        metrics = clusterer.get_clustering_metrics([])
-        print("Обработка пустого списка")
+        clusterer.fit_clusters([])
+        metrics = clusterer.get_clustering_metrics()
+        print(f"Пустой список: документов = {metrics.get('total_documents', 0)}")
     except Exception as e:
         print(f"Ошибка с пустым списком: {e}")
 
     # Тест 2: Очень короткие тексты
-    short_texts = ["Hi", "OK", "Yes", "No"]
-    topics = clusterer.fit_clusters(short_texts)
-    metrics = clusterer.get_clustering_metrics(short_texts)
-
+    clusterer2 = TrendClusterer()
+    clusterer2.fit_clusters(["Hi", "OK", "Yes", "No"])
+    metrics2 = clusterer2.get_clustering_metrics()
     print(f"\nКороткие тексты:")
-    print(f"Документов: {metrics.get('total_documents', 0)}")
-    print(f"Шум: {metrics.get('noise_percentage', 0):.1f}%")
+    print(f"Документов: {metrics2.get('total_documents', 0)}")
+    print(f"Шум: {metrics2.get('noise_percentage', 0):.1f}%")
 
-    # Тест 3: Все тексты одинаковые
-    duplicate_texts = ["Same text"] * 5
-    topics = clusterer.fit_clusters(duplicate_texts)
-    metrics = clusterer.get_clustering_metrics(duplicate_texts)
-
-    print(f"\nДубликаты текстов:")
-    print(f"Документов: {metrics.get('total_documents', 0)}")
-    print(f"Кластеров: {metrics.get('clusters_found', 0)}")
+    # Тест 3: Дублирующиеся тексты
+    clusterer3 = TrendClusterer()
+    clusterer3.fit_clusters(["Same text"] * 5)
+    metrics3 = clusterer3.get_clustering_metrics()
+    print(f"\nДубликаты:")
+    print(f"Документов: {metrics3.get('total_documents', 0)}")
+    print(f"Кластеров: {metrics3.get('clusters_found', 0)}")
 
     print("\nОбработка некорректных данных работает")
     return True
-
-
-def run_all_tests():
-    """Запуск всех тестов"""
-    print("\n" + "=" * 60)
-    print("ЗАПУСК ТЕСТОВ TRENDCLUSTERER С МЕТРИКАМИ")
-    print("=" * 60)
-
-    test_results = []
-
-    try:
-        test_results.append(("Инициализация", test_clusterer_initialization()))
-    except Exception as e:
-        print(f"Тест инициализации провален: {e}")
-        test_results.append(("Инициализация", False))
-
-    try:
-        test_results.append(("Базовая кластеризация", test_clustering_basic()))
-    except Exception as e:
-        print(f"Тест базовой кластеризации провален: {e}")
-        test_results.append(("Базовая кластеризация", False))
-
-    try:
-        test_results.append(("Метрики качества", test_clustering_metrics()))
-    except Exception as e:
-        print(f"Тест метрик провален: {e}")
-        test_results.append(("Метрики качества", False))
-
-    try:
-        test_results.append(("Детальный отчет", test_detailed_report()))
-    except Exception as e:
-        print(f"Тест отчета провален: {e}")
-        test_results.append(("Детальный отчет", False))
-
-    try:
-        test_results.append(("Ключевые слова", test_keyword_extraction()))
-    except Exception as e:
-        print(f"Тест ключевых слов провален: {e}")
-        test_results.append(("Ключевые слова", False))
-
-    try:
-        test_results.append(("Некорректные данные", test_empty_clustering()))
-    except Exception as e:
-        print(f"Тест некорректных данных провален: {e}")
-        test_results.append(("Некорректные данные", False))
-
-    # Итоги
-    print("\n" + "=" * 60)
-    print("ИТОГИ ТЕСТИРОВАНИЯ:")
-    print("=" * 60)
-
-    passed = 0
-    total = len(test_results)
-
-    for test_name, result in test_results:
-        status = "ПРОЙДЕН" if result else "ПРОВАЛЕН"
-        print(f"{status}: {test_name}")
-        if result:
-            passed += 1
-
-    print("\n" + "=" * 60)
-    success_rate = (passed / total) * 100 if total > 0 else 0
-    print(f"РЕЗУЛЬТАТ: {passed}/{total} тестов пройдено ({success_rate:.0f}%)")
-
-    if passed == total:
-        print("ВСЕ ТЕСТЫ УСПЕШНО ПРОЙДЕНЫ!")
-    else:
-        print("Некоторые тесты не пройдены")
-
-    return passed == total

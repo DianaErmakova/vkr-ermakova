@@ -2,7 +2,7 @@ import os
 import sys
 import logging
 
-# ========== НАСТРОЙКА ДЛЯ WINDOWS ==========
+# НАСТРОЙКА ДЛЯ WINDOWS
 # Решаем проблему с symlinks на Windows
 os.environ['HF_HOME'] = os.path.join(os.path.expanduser('~'), '.cache', 'huggingface')
 os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
@@ -13,7 +13,7 @@ cache_dir = os.environ['HF_HOME']
 os.makedirs(cache_dir, exist_ok=True)
 print(f"Кэш моделей: {cache_dir}")
 
-# ========== ИМПОРТЫ ==========
+# ИМПОРТЫ
 # Теперь безопасно импортировать
 from typing import List, Dict, Union, Any  # ← ДОБАВЬТЕ ЭТУ СТРОЧКУ!
 import torch

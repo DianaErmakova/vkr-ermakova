@@ -1,39 +1,34 @@
-# Ваши текущие зависимости
+# Данные и вычисления
 pandas>=1.5.0
 numpy>=1.21.0
 scikit-learn>=1.0.0
-matplotlib>=3.5.0
-seaborn>=0.11.0
-jupyter>=1.0.0
-notebook>=6.0.0
 
-# Для сбора данных
-requests>=2.28.0
-praw>=7.7.0
-
-# Для NLP
+# NLP и модели
 transformers>=4.30.0
 torch>=2.0.0
 sentence-transformers>=2.2.0
-spacy>=3.5.0
-nltk>=3.8.0
+accelerate>=0.25.0
+sentencepiece>=0.1.99
 
-# Для анализа тональности
-accelerate==0.25.0
-sentencepiece==0.1.99
-
-# Для кластеризации трендов (ДОБАВИТЬ)
+# Кластеризация трендов
 bertopic>=0.15.0
 umap-learn>=0.5.0
 hdbscan>=0.8.0
-plotly>=5.15.0
 
-# Для дашборда
+# Визуализация
+plotly>=5.15.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+
+# Дашборд
 streamlit>=1.28.0
 
-# Для конфигов
+# Сбор данных
+requests>=2.28.0
+feedparser>=6.0.0
+yfinance>=0.2.18
+newsapi-python>=0.2.7
+
+# Утилиты
 python-dotenv>=1.0.0
 pyyaml>=6.0
-
-# Для финансовых данных
-yfinance>=0.2.18
