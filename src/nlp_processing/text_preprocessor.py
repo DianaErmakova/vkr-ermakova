@@ -211,13 +211,12 @@ class TextPreprocessor:
 
 # Фабричные функции для удобства
 
-def get_clustering_preprocessor() -> TextPreprocessor:
+
+def get_clustering_preprocessor(language='english') -> TextPreprocessor:
     """Препроцессор для BERTopic (агрессивная очистка)"""
-    return TextPreprocessor(
-        mode='clustering',
-        remove_stopwords=True,
-        min_word_length=3
-    )
+    if language == 'russian':
+        return TextPreprocessor(mode='clustering', remove_stopwords=True, min_word_length=3, language='russian')
+    return TextPreprocessor(mode='clustering', remove_stopwords=True, min_word_length=3)
 
 
 def get_sentiment_preprocessor() -> TextPreprocessor:
@@ -227,7 +226,28 @@ def get_sentiment_preprocessor() -> TextPreprocessor:
         remove_stopwords=False
     )
 
+
+def _clean_for_clustering_russian(self, text: str) -> str:
+    """Очистка для русских текстов"""
+    text = text.lower()
+    text = re.sub(r'http\S+|www\S+', ' ', text)
+    text = re.sub(r'[^\w\s]', ' ', text)
+    text = re.sub(r'\d+', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    # русские стоп-слова
+    stopwords_ru = {'и', 'в', 'во', 'не', 'что', 'на', 'я', 'с', 'со', 'как', 'а', 'но', 'это', 'так', 'же', 'бы', 'по',
+                    'только', 'еще', 'уже', 'вот', 'да', 'нет', 'все', 'было', 'если', 'или', 'без', 'до', 'для', 'за',
+                    'из', 'к', 'о', 'об', 'от', 'при', 'через'}
+
+    if self.remove_stopwords:
+        words = [w for w in text.split() if w not in stopwords_ru and len(w) >= 3]
+        text = ' '.join(words)
+
+    return text
+
 # Демо
+
 
 if __name__ == "__main__":
     print("=" * 55)

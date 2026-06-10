@@ -61,6 +61,12 @@ class SentimentAnalyzer:
             "path": "bert-base-uncased",
             "labels": {0: "negative", 1: "neutral", 2: "positive"},
             "description": "Базовая модель BERT"
+        },
+
+        "rubert-sentiment": {
+            "path": "blanchefort/rubert-base-cased-sentiment",
+            "labels": {0: "negative", 1: "neutral", 2: "positive"},
+            "description": "RuBERT для русского языка (обучен на тональности)"
         }
     }
 

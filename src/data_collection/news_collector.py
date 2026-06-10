@@ -43,10 +43,18 @@ SOURCE_AUTHORITY = {
 
 # RSS-ленты деловых изданий (без API-ключа)
 RSS_FEEDS = {
+    # существующие
     'reuters_business': 'https://feeds.reuters.com/reuters/businessNews',
-    'bbc_business':     'https://feeds.bbci.co.uk/news/business/rss.xml',
-    'cnbc_top':         'https://www.cnbc.com/id/100003114/device/rss/rss.html',
-    'yahoo_finance':    'https://finance.yahoo.com/rss/topstories',
+    'bbc_business': 'https://feeds.bbci.co.uk/news/business/rss.xml',
+    'cnbc_top': 'https://www.cnbc.com/id/100003114/device/rss/rss.html',
+    'yahoo_finance': 'https://finance.yahoo.com/rss/topstories',
+
+    # русские реальные новости
+    'rbc': 'https://www.rbc.ru/rss',
+    'tass': 'http://tass.ru/rss/v2.xml',
+    'rt_russian': 'https://russian.rt.com/rss',
+    'kommersant': 'https://www.kommersant.ru/RSS/news.xml',
+    'vedomosti': 'https://vedomosti.ru/rss/rss.xml',
 }
 
 
@@ -87,9 +95,9 @@ class NewsCollector:
         """
         if not self.api_key:
             logger.info("API-ключ не задан — используем RSS")
-            return self._get_rss_news(query)
+            return self._get_rss_news(query, language=language)
 
-        end_date   = datetime.utcnow()
+        end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days_back)
 
         return self._fetch_newsapi(
@@ -148,7 +156,7 @@ class NewsCollector:
             language=language
         )
 
-    def get_multi_source(self, query, days_back=7):
+    def get_multi_source(self, query, days_back=7, language='en'):
         """
         Собрать новости из всех доступных источников (NewsAPI + RSS).
 
@@ -172,7 +180,7 @@ class NewsCollector:
             logger.info(f"NewsAPI: {len(api_articles)} статей")
 
         # RSS
-        rss_articles = self._get_rss_news(query)
+        rss_articles = self._get_rss_news(query, language=language)
         for art in rss_articles:
             if art['url'] not in seen_urls:
                 seen_urls.add(art['url'])
@@ -237,7 +245,7 @@ class NewsCollector:
 
     # RSS
 
-    def _get_rss_news(self, query):
+    def _get_rss_news(self, query, language='en'):
         """
         Загружает RSS-ленты и фильтрует статьи по ключевым словам.
         Не требует API-ключа.
@@ -255,6 +263,12 @@ class NewsCollector:
         articles = []
 
         for feed_name, feed_url in RSS_FEEDS.items():
+            # фильтруем ленты по языку
+            if language == 'ru' and not any(r in feed_name for r in ['rbc', 'tass', 'rt', 'kommersant', 'vedomosti']):
+                continue
+            if language == 'en' and any(r in feed_name for r in ['rbc', 'tass', 'rt', 'kommersant', 'vedomosti']):
+                continue
+
             try:
                 feed = feedparser.parse(feed_url)
                 count = 0
@@ -264,7 +278,6 @@ class NewsCollector:
                     summary = entry.get('summary', '')
                     combined = (title + ' ' + summary).lower()
 
-                    # Проверяем что хотя бы одно слово запроса есть в тексте
                     if not any(word in combined for word in query_words):
                         continue
 
@@ -273,13 +286,13 @@ class NewsCollector:
                     source_name = self._extract_domain(source_url) or feed_name
 
                     articles.append({
-                        'title':           title,
-                        'description':     summary[:300] if summary else '',
-                        'url':             source_url,
-                        'source':          source_name,
-                        'published_at':    published,
+                        'title': title,
+                        'description': summary[:300] if summary else '',
+                        'url': source_url,
+                        'source': source_name,
+                        'published_at': published,
                         'authority_score': self._get_authority(source_url),
-                        'data_source':     'rss',
+                        'data_source': 'rss',
                     })
                     count += 1
 

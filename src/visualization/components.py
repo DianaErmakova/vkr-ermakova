@@ -27,31 +27,35 @@ def render_sidebar():
             key="data_source"
         )
 
-        companies = st.multiselect(
-            "Выберите компании",
-            list(config.COMPANY_TICKERS.keys()),
-            default=config.DEFAULT_COMPANIES,
-            key="selected_companies"
-        )
-
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input(
-                "Начало",
-                datetime(2008, 8, 1) if data_source == "Исторические (DJIA)"
-                else datetime.now() - timedelta(days=90),
-                key="start_date"
-            )
-        with col2:
-            end_date = st.date_input(
-                "Конец",
-                datetime(2008, 9, 1) if data_source == "Исторические (DJIA)"
-                else datetime.now(),
-                key="end_date"
-            )
-
         st.subheader("Настройки")
         enable_sentiment = st.checkbox("Анализ тональности", value=True, key="enable_sentiment")
+
+        # Только для NewsAPI показываем язык и компании
+        if data_source == "Реальные (NewsAPI)":
+            language = st.selectbox(
+                "Язык новостей",
+                ["english", "russian"],
+                key="language"
+            )
+
+            if language == "russian":
+                all_companies = list(config.COMPANY_TICKERS.keys())
+                company_list = [c for c in all_companies if any('\u0400' <= ch <= '\u04FF' for ch in c)]
+                default_companies = ["Сбербанк", "Яндекс", "Газпром"]
+            else:
+                company_list = list(config.COMPANY_TICKERS.keys())
+                default_companies = config.DEFAULT_COMPANIES
+
+            companies = st.multiselect(
+                "Выберите компании",
+                company_list,
+                default=default_companies,
+                key="selected_companies"
+            )
+        else:
+            # Для демо и DJIA — фиктивные значения, не используются
+            language = "english"
+            companies = []
 
         week_offset = 0
         if data_source == "Исторические (DJIA)":
@@ -64,6 +68,15 @@ def render_sidebar():
         api_key = None
         if data_source == "Реальные (NewsAPI)":
             api_key = st.text_input("API ключ NewsAPI", type="password", key="api_key")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input("Начало", datetime.now() - timedelta(days=30), key="start_date")
+            with col2:
+                end_date = st.date_input("Конец", datetime.now(), key="end_date")
+        else:
+            start_date = None
+            end_date = None
 
         analyze_btn = st.button(
             "Запустить анализ",
@@ -87,6 +100,7 @@ def render_sidebar():
             'start_date':       start_date,
             'end_date':         end_date,
             'enable_sentiment': enable_sentiment,
+            'language':         language,
             'week_offset':      week_offset,
             'api_key':          api_key,
             'analyze_btn':      analyze_btn,
@@ -141,6 +155,11 @@ def render_tab_overview(results, companies, data_source):
         for i, news in enumerate(samples[:5]):
             with st.expander(f"Новость {i + 1}"):
                 st.write(news)
+
+    if 'industry_classification' in results:
+        st.subheader("Отраслевая классификация")
+        industry_df = pd.DataFrame(results['industry_classification'])
+        st.dataframe(industry_df, use_container_width=True)
 
 
 def render_tab_trends(results, analyzer=None):
@@ -286,50 +305,44 @@ def render_tab_sentiment(results):
 def render_tab_correlation(results, companies):
     st.header("Корреляция с ценами акций")
 
-    if not companies:
-        st.warning("Выберите хотя бы одну компанию")
+    if st.session_state.get('data_source') == "Демо-данные":
+        st.info("В демо-режиме корреляция не рассчитывается.")
         return
 
-    selected_company = st.selectbox(
-        "Выберите компанию", companies, key="correlation_company"
-    )
-    ticker = get_ticker_from_company(selected_company)
+    # Определяем тикер в зависимости от режима
+    if st.session_state.get('data_source') == "Исторические (DJIA)":
+        ticker_input = st.text_input("Тикер компании", value="MSFT")
+        ticker = ticker_input.upper()
+        selected_company = ticker
+    else:
+        if not companies:
+            st.warning("Выберите хотя бы одну компанию")
+            return
+        selected_company = st.selectbox("Выберите компанию", companies)
+        ticker = get_ticker_from_company(selected_company)
 
-    # Даты по умолчанию — период анализа DJIA если есть, иначе последние 90 дней
+    # Даты по умолчанию
     default_start = datetime.now() - timedelta(days=90)
-    default_end   = datetime.now()
+    default_end = datetime.now()
     if 'analysis_period' in st.session_state:
         default_start = st.session_state['analysis_period']['start']
-        default_end   = st.session_state['analysis_period']['end']
+        default_end = st.session_state['analysis_period']['end']
 
     col1, col2 = st.columns(2)
     with col1:
-        start_date = st.date_input(
-            "Начальная дата", default_start, key="correlation_start"
-        )
+        start_date = st.date_input("Начальная дата", default_start, key="correlation_start")
     with col2:
-        end_date = st.date_input(
-            "Конечная дата", default_end, key="correlation_end"
-        )
+        end_date = st.date_input("Конечная дата", default_end, key="correlation_end")
 
-    # Подсказка если период слишком короткий
     period_days = (pd.to_datetime(end_date) - pd.to_datetime(start_date)).days
     if period_days < 30:
-        st.warning(
-            f"Выбранный период — {period_days} дней. "
-            "Для расчёта корреляции рекомендуется минимум 30 дней. "
-            "Расширьте диапазон дат."
-        )
+        st.warning(f"Выбранный период — {period_days} дней. Для расчёта корреляции рекомендуется минимум 30 дней.")
 
     if st.button(f"Загрузить данные {ticker}", key="load_stock_btn"):
         with st.spinner(f"Загружаем данные для {ticker}..."):
-            stock_data = load_stock_prices(
-                ticker,
-                start_date.strftime('%Y-%m-%d'),
-                end_date.strftime('%Y-%m-%d')
-            )
+            stock_data = load_stock_prices(ticker, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
             if stock_data is not None and not stock_data.empty:
-                st.session_state['stock_data']     = stock_data
+                st.session_state['stock_data'] = stock_data
                 st.session_state['current_ticker'] = ticker
                 st.success(f"Данные {ticker} загружены: {len(stock_data)} торговых дней")
                 st.rerun()
@@ -338,12 +351,12 @@ def render_tab_correlation(results, companies):
 
     if 'stock_data' in st.session_state:
         stock_data = st.session_state['stock_data']
-        ticker     = st.session_state.get('current_ticker', 'Акция')
+        ticker = st.session_state.get('current_ticker', 'Акция')
 
         col1, col2, col3, col4 = st.columns(4)
         current_price = stock_data['Close'].iloc[-1]
-        prev_price    = stock_data['Close'].iloc[-2] if len(stock_data) > 1 else current_price
-        change        = ((current_price - prev_price) / prev_price) * 100
+        prev_price = stock_data['Close'].iloc[-2] if len(stock_data) > 1 else current_price
+        change = ((current_price - prev_price) / prev_price) * 100
 
         with col1:
             st.metric("Текущая цена", f"${current_price:.2f}", delta=f"{change:.2f}%")
@@ -364,14 +377,8 @@ def render_tab_correlation(results, companies):
     st.markdown("---")
     st.subheader("Корреляция тональности с доходностью")
 
-    # Проверяем наличие данных до показа кнопки
     has_sentiment = 'sentiment_results' in st.session_state
-    has_stock     = 'stock_data' in st.session_state
-
-    if not has_sentiment:
-        st.info("Для расчёта корреляции сначала запустите анализ исторических данных (DJIA).")
-    if not has_stock:
-        st.info("Для расчёта корреляции сначала загрузите данные по акции.")
+    has_stock = 'stock_data' in st.session_state
 
     if has_sentiment and has_stock:
         if st.button("Рассчитать корреляцию", key="calc_correlation_btn"):

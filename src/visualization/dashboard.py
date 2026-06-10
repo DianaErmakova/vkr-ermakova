@@ -168,7 +168,7 @@ def run_dashboard():
     params = components.render_sidebar()
 
     # Обработка кнопки
-    if params['analyze_btn'] and params['companies']:
+    if params['analyze_btn']:
         with st.spinner("Анализируем данные... Это может занять несколько минут"):
 
             if params['data_source'] == "Исторические (DJIA)":
@@ -271,13 +271,13 @@ def run_dashboard():
                     if params['data_source'] == "Реальные (NewsAPI)" else None
                 )
 
-                if params['data_source'] == "Реальные (NewsAPI)" and not api_key:
-                    st.error("Введите API-ключ NewsAPI в боковой панели.")
-                    return
+                if params['data_source'] == "Реальные (NewsAPI)":
+                    pass
 
                 analyzer = MarketTrendAnalyzer(
                     news_api_key=api_key,
-                    enable_sentiment=params['enable_sentiment']
+                    enable_sentiment=params['enable_sentiment'],
+                    language=params.get('language', 'english')
                 )
 
                 results = analyzer.analyze_with_influence(
@@ -308,10 +308,10 @@ def run_dashboard():
 
     # Отображение результатов
     if 'results' in st.session_state:
-        results     = st.session_state['results']
-        companies   = st.session_state['companies']
+        results = st.session_state['results']
+        companies = st.session_state.get('companies', [])
         data_source = params.get('data_source', '') if 'params' in locals() else ''
-        analyzer    = st.session_state.get('analyzer', None)
+        analyzer = st.session_state.get('analyzer', None)
 
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "Обзор", "Тренды", "Тональность", "Корреляция", "Влияние"
@@ -320,10 +320,7 @@ def run_dashboard():
         with tab1:
             components.render_tab_overview(results, companies, data_source)
         with tab2:
-            if analyzer:
-                components.render_tab_trends(results, analyzer)
-            else:
-                st.info("Тренды доступны только в демо-режиме и при использовании NewsAPI")
+            components.render_tab_trends(results, analyzer)
         with tab3:
             components.render_tab_sentiment(results)
         with tab4:

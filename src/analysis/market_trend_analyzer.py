@@ -4,16 +4,22 @@
 Объединяет сбор новостей, кластеризацию, анализ тональности
 и расчёт индекса влияния в единый пайплайн.
 
-Расположение файла: src/analysis/market_trend_analyzer.py
+Архитектура:
+    NewsCollector (данные) → TextPreprocessor (очистка) → TrendClusterer (темы)
+                                                       ↓
+                                              SentimentAnalyzer (тональность)
+                                                       ↓
+                                            InfluenceIndexCalculator (индекс)
+                                                       ↓
+                                                   дашборд (Streamlit)
 
 Импорты абсолютные — src/ добавляется в sys.path при запуске
 через app.py, eda_djia.py и pytest.ini (pythonpath = src .).
-Это стандартный подход для проектов где src/ не является
-установленным пакетом (нет setup.py / pyproject.toml).
 """
 
 import logging
 import pandas as pd
+from collections import defaultdict
 
 from data_collection.news_collector import NewsCollector
 from data_collection.stock_collector import StockCollector
@@ -21,14 +27,12 @@ from analysis.trend_clusterer import TrendClusterer
 
 logger = logging.getLogger(__name__)
 
+# Опциональные модули (если недоступны — отключаем функциональность)
 try:
     from analysis.sentiment_analyzer import SentimentAnalyzer
     SENTIMENT_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"SentimentAnalyzer недоступен: {e}")
-    SENTIMENT_AVAILABLE = False
-except Exception as e:
-    logger.warning(f"Ошибка импорта SentimentAnalyzer: {e}")
     SENTIMENT_AVAILABLE = False
 
 try:
@@ -38,8 +42,15 @@ except ImportError as e:
     logger.warning(f"InfluenceIndexCalculator недоступен: {e}")
     INFLUENCE_AVAILABLE = False
 
+try:
+    from .industry_classifier import create_industry_classifier
+    INDUSTRY_AVAILABLE = True
+except ImportError:
+    INDUSTRY_AVAILABLE = False
+    logger.warning("IndustryClassifier недоступен")
 
-# Демо-тексты используются когда NewsAPI недоступен или не вернул статей
+# Демо-тексты — используются когда нет API-ключа или API не вернул статей
+# Содержат 15 новостей по 4 темам: электромобили, AI/ML, криптовалюты, облачные технологии
 _DEMO_TEXTS = [
     "Tesla electric vehicles have advanced battery technology and long range",
     "Electric cars reduce air pollution and carbon emissions in cities",
@@ -63,25 +74,47 @@ class MarketTrendAnalyzer:
     """
     Главный класс анализа рыночных трендов.
 
-    Оркестрирует: NewsCollector -> TextPreprocessor -> TrendClusterer
-                               -> SentimentAnalyzer -> InfluenceIndexCalculator
+    Оркестрирует весь пайплайн:
+        1. Сбор новостей (NewsCollector)
+        2. Кластеризация тем (TrendClusterer / BERTopic)
+        3. Анализ тональности (SentimentAnalyzer / FinBERT/RuBERT)
+        4. Расчёт индекса влияния (InfluenceIndexCalculator)
+        5. Отраслевая классификация (эвристическая)
 
     Args:
-        news_api_key:     ключ NewsAPI (если None — используются демо-данные)
+        news_api_key:     ключ NewsAPI (если None — используются демо-данные или RSS)
         enable_sentiment: включить анализ тональности (требует загрузки модели)
+        language:         язык новостей ('english' или 'russian')
     """
 
-    def __init__(self, news_api_key=None, enable_sentiment=True):
+    def __init__(self, news_api_key=None, enable_sentiment=True, language='english'):
         self.news_collector = NewsCollector(api_key=news_api_key)
         self.stock_collector = StockCollector()
-        self.trend_clusterer = TrendClusterer()
+        self.trend_clusterer = TrendClusterer(language=language)
         self.enable_sentiment = enable_sentiment
         self.sentiment_analyzer = None
+        self.language = language
+        self.industry_classifier = None
 
+        # Инициализация отраслевого классификатора (эвристика)
+        if INDUSTRY_AVAILABLE:
+            try:
+                self.industry_classifier = create_industry_classifier()
+                logger.info("Отраслевой классификатор инициализирован")
+            except Exception as e:
+                logger.warning(f"Ошибка инициализации IndustryClassifier: {e}")
+
+        # Инициализация анализатора тональности
         if self.enable_sentiment and SENTIMENT_AVAILABLE:
             try:
-                self.sentiment_analyzer = SentimentAnalyzer()
-                logger.info("Анализатор тональности инициализирован")
+                # Выбор модели в зависимости от языка
+                if language == 'russian':
+                    model_name = "rubert-sentiment"
+                else:
+                    model_name = "distilroberta-financial"
+
+                self.sentiment_analyzer = SentimentAnalyzer(model_name=model_name)
+                logger.info(f"Анализатор тональности инициализирован (модель: {model_name})")
             except Exception as e:
                 logger.error(f"Ошибка создания SentimentAnalyzer: {e}")
                 self.enable_sentiment = False
@@ -91,25 +124,24 @@ class MarketTrendAnalyzer:
 
     def analyze_market_trends(self, companies, pages=1):
         """
-        Базовый анализ трендов: сбор новостей + BERTopic кластеризация.
+        Базовый анализ: сбор новостей + кластеризация (BERTopic).
 
         Args:
-            companies: список названий компаний для поиска новостей
+            companies: список названий компаний для поиска
             pages:     количество страниц NewsAPI (1 стр. = 20 статей)
 
         Returns:
-            Словарь с total_news, trends_found, trends_info, news_samples
+            dict: total_news, trends_found, trends_info, news_samples
         """
-        # Если нет API-ключа и компании не указаны — сразу демо-режим
+        # Если нет API-ключа — сразу демо-режим
         if not self.news_collector.api_key:
             logger.info("Демо-режим: используем тестовые данные")
             all_news = _DEMO_TEXTS
         else:
-            # Пытаемся собрать реальные новости через NewsAPI/RSS
             all_news = []
             for company in companies:
                 try:
-                    news = self.news_collector.get_news(company, pages=pages)
+                    news = self.news_collector.get_news(company, pages=pages, language=self.language)
                     all_news.extend([article['title'] for article in news])
                 except Exception as e:
                     logger.error(f"Ошибка при сборе новостей для {company}: {e}")
@@ -119,9 +151,9 @@ class MarketTrendAnalyzer:
                 logger.info("Новости не собраны, используем демо-данные")
                 all_news = _DEMO_TEXTS
 
-        # Кластеризация (если текстов достаточно)
+        # Кластеризация (требуется минимум 2 текста)
         if len(all_news) >= 2:
-            topics = self.trend_clusterer.fit_clusters(all_news)
+            self.trend_clusterer.fit_clusters(all_news)
             trends_info = self.trend_clusterer.get_trends_info()
         else:
             logger.warning(f"Недостаточно текстов для кластеризации: {len(all_news)}")
@@ -174,7 +206,7 @@ class MarketTrendAnalyzer:
                 'individual_samples': individual_scores,
                 'model_used':         self.sentiment_analyzer.get_model_info()['name'],
             }
-            # Внутренний ключ для передачи в influence-пайплайн
+            # Сохраняем для influence-пайплайна
             results['_individual_scores'] = individual_scores
 
             logger.info(f"Средняя тональность: {sentiment_summary['average_score']:.2f}")
@@ -187,13 +219,14 @@ class MarketTrendAnalyzer:
 
     def analyze_with_influence(self, companies, pages=1):
         """
-        Полный анализ: тренды + тональность + индекс влияния.
+        Полный анализ: тренды + тональность + индекс влияния + отрасли.
 
-        Индекс влияния использует реальные данные тональности из SentimentAnalyzer.
-        Виральность = 0 (ограничение: данные соцсетей недоступны через NewsAPI).
+        Виральность рассчитывается как прокси-метрика:
+            количество уникальных источников (чем больше — тем выше виральность)
 
         Returns:
             Результат analyze_with_sentiment, дополненный influence_analysis
+            и industry_classification
         """
         logger.info("Полный анализ с индексом влияния...")
         results = self.analyze_with_sentiment(companies, pages)
@@ -210,50 +243,72 @@ class MarketTrendAnalyzer:
         individual_scores = results.pop('_individual_scores', [])
         news_samples = results.get('news_samples', [])
 
+        # Группируем похожие новости по началу заголовка
+        source_count = defaultdict(int)
+        for text in news_samples:
+            title_key = text[:80].strip()
+            source_count[title_key] += 1
+
         influence_items = []
         for i, text in enumerate(news_samples):
             real_score = individual_scores[i]['score'] if i < len(individual_scores) else 0.0
+            title_key = text[:80].strip()
+            sources = source_count[title_key]
+
+            # Прокси-виральность: 1 источник = 0, 5+ = 1.0
+            virality = min(1.0, (sources - 1) / 4) if sources > 1 else 0.0
+
             influence_items.append({
-                'title':           text[:100],
-                'mentions_count':  1,
-                'max_mentions':    len(news_samples),
-                'min_mentions':    1,
+                'title': text[:100],
+                'mentions_count': sources,
+                'max_mentions': max(source_count.values()) if source_count else 1,
+                'min_mentions': 1,
                 'sentiment_score': real_score,
-                'spread_data':     {},
-                'source':          'newsapi',
-                'date':            '',
+                'spread_data': {
+                    'source_count': sources,
+                    'virality_proxy': virality
+                },
+                'source': 'multiple_sources' if sources > 1 else 'single_source',
+                'date': '',
             })
 
         if influence_items:
-            top_influencers = influence_calc.identify_top_influencers(
-                influence_items, top_n=5
-            )
+            top_influencers = influence_calc.identify_top_influencers(influence_items, top_n=5)
             trend_influence = influence_calc.calculate_trend_influence(influence_items)
 
             results['influence_analysis'] = {
-                'trend_score':     trend_influence,
-                'top_influencers': (
-                    top_influencers.to_dict('records')
-                    if not top_influencers.empty else []
-                ),
+                'trend_score': trend_influence,
+                'top_influencers': top_influencers.to_dict('records') if not top_influencers.empty else [],
                 'total_items': len(influence_items),
                 'note': (
-                    'Виральность = 0: данные социальных сетей недоступны через NewsAPI. '
-                    'Тональность рассчитана моделью FinBERT/RoBERTa.'
+                    'Виральность рассчитана по количеству уникальных источников '
+                    '(прокси-метрика). Чем больше изданий опубликовало новость, '
+                    'тем выше значение виральности.'
                 ),
             }
 
-            logger.info(
-                f"Индекс влияния тренда: "
-                f"{trend_influence.get('trend_influence_score', 'N/A')}"
-            )
+            logger.info(f"Индекс влияния тренда: {trend_influence.get('trend_influence_score', 'N/A')}")
+
+        # Отраслевая классификация
+        if self.industry_classifier:
+            try:
+                industries = []
+                for text in news_samples:
+                    industries.append(self.industry_classifier.classify(text))
+                results['industry_classification'] = industries
+            except Exception as e:
+                logger.warning(f"Ошибка классификации отраслей: {e}")
 
         return results
 
     def analyze_with_metrics(self, companies):
-        """Для обратной совместимости."""
+        """
+        Анализ с метриками (для обратной совместимости).
+        Возвращает метрики кластеризации и тональности.
+        """
         results = self.analyze_market_trends(companies)
 
+        # Метрики кластеризации
         if hasattr(self.trend_clusterer.topic_model, 'get_topic_info'):
             topic_info = self.trend_clusterer.get_trends_info()
             results['clustering_metrics'] = {
@@ -261,6 +316,7 @@ class MarketTrendAnalyzer:
                 'avg_docs_per_topic': topic_info['Count'].mean(),
             }
 
+        # Метрики тональности
         if (self.enable_sentiment and self.sentiment_analyzer
                 and results.get('news_samples')):
             try:

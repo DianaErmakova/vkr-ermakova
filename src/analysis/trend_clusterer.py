@@ -8,6 +8,7 @@ import pandas as pd
 import warnings
 from bertopic import BERTopic
 from sklearn.feature_extraction.text import CountVectorizer
+from sentence_transformers import SentenceTransformer
 
 warnings.filterwarnings('ignore')
 
@@ -35,24 +36,40 @@ except ImportError:
 
 
 class TrendClusterer:
-    def __init__(self):
+    def __init__(self, language='english'):
         self.topic_model = None
         self.topics = None
         self.processed_texts = None
+        self.language = language
         self._empty_topic_info = pd.DataFrame(columns=['Topic', 'Count', 'Name'])
         self._setup_model()
 
     def _setup_model(self):
+        if self.language == 'russian':
+            # русские настройки
+            embedding_model = SentenceTransformer('DeepPavlov/rubert-base-cased')
+            stop_words = "russian"
+            token_pattern = r'(?u)\b[а-яё]{3,}\b'
+            language = "russian"
+        else:
+            # английские настройки
+            embedding_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            stop_words = "english"
+            token_pattern = r'(?u)\b[a-zA-Z]{3,}\b'
+            language = "english"
+
         vectorizer_model = CountVectorizer(
-            stop_words="english",
+            stop_words=stop_words,
             ngram_range=(1, 2),
             min_df=1,
             max_df=0.95,
-            token_pattern=r'(?u)\b[a-zA-Z]{3,}\b',
+            token_pattern=token_pattern,
             max_features=100
         )
+
         self.topic_model = BERTopic(
-            language="english",
+            language=language,
+            embedding_model=embedding_model,
             min_topic_size=2,
             nr_topics="auto",
             vectorizer_model=vectorizer_model,
